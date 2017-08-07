@@ -64,18 +64,22 @@ typedef struct VideoState {
 
   AVFormatContext *pFormatCtx;
   int             videoStream, audioStream;
+
   AVStream        *audio_st;
-  PacketQueue     audioq;
+  PacketQueue     audioq; // audio packet queue
+  // pcm audio buffer
   uint8_t         audio_buf[(MAX_AUDIO_FRAME_SIZE * 3) / 2];
   unsigned int    audio_buf_size;
   unsigned int    audio_buf_index;
+  // cur audio decord frame
   AVFrame         audio_frame;
   AVPacket        audio_pkt;
   uint8_t         *audio_pkt_data;
   int             audio_pkt_size;
-  AVStream        *video_st;
-  PacketQueue     videoq;
 
+  AVStream        *video_st;
+  PacketQueue     videoq; // video packet queue
+  // video show queue(ring buffer)
   VideoPicture    pictq[VIDEO_PICTURE_QUEUE_SIZE];
   int             pictq_size, pictq_rindex, pictq_windex;
   SDL_mutex       *pictq_mutex;
@@ -146,7 +150,7 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     if (pkt1) {
       q->first_pkt = pkt1->next;
       if (!q->first_pkt)
-	q->last_pkt = NULL;
+        q->last_pkt = NULL;
       q->nb_packets--;
       q->size -= pkt1->pkt.size;
       *pkt = pkt1->pkt;
@@ -171,11 +175,12 @@ int audio_decode_frame(VideoState *is) {
   for(;;) {
     while(is->audio_pkt_size > 0) {
       int got_frame = 0;
+      // @todo aligin packet buffer to audio_pkt_data and audio_pkt_size
       len1 = avcodec_decode_audio4(is->audio_st->codec, &is->audio_frame, &got_frame, pkt);
       if(len1 < 0) {
-	/* if error, skip frame */
-	is->audio_pkt_size = 0;
-	break;
+        /* if error, skip frame */
+        is->audio_pkt_size = 0;
+        break;
       }
       if (got_frame)
       {
@@ -193,8 +198,8 @@ int audio_decode_frame(VideoState *is) {
       is->audio_pkt_data += len1;
       is->audio_pkt_size -= len1;
       if(data_size <= 0) {
-	/* No data yet, get more frames */
-	continue;
+        /* No data yet, get more frames */
+        continue;
       }
       /* We have data, return it and come back for more later */
       return data_size;
@@ -224,11 +229,11 @@ void audio_callback(void *userdata, Uint8 *stream, int len) {
       /* We have already sent all our data; get more */
       audio_size = audio_decode_frame(is);
       if(audio_size < 0) {
-	/* If error, output silence */
-	is->audio_buf_size = 1024;
-	memset(is->audio_buf, 0, is->audio_buf_size);
+        /* If error, output silence */
+        is->audio_buf_size = 1024;
+        memset(is->audio_buf, 0, is->audio_buf_size);
       } else {
-	is->audio_buf_size = audio_size;
+        is->audio_buf_size = audio_size;
       }
       is->audio_buf_index = 0;
     }
@@ -273,9 +278,9 @@ void video_display(VideoState *is) {
 	is->video_st->codec->width / is->video_st->codec->height;
     }
     if(aspect_ratio <= 0.0) {
-      aspect_ratio = (float)is->video_st->codec->width /
-	(float)is->video_st->codec->height;
+      aspect_ratio = (float)is->video_st->codec->width / (float)is->video_st->codec->height;
     }
+    // 按比率伸缩出黑边显示
     h = screen->h;
     w = ((int)rint(h * aspect_ratio)) & -3;
     if(w > screen->w) {
@@ -305,11 +310,11 @@ void video_refresh_timer(void *userdata) {
     } else {
       //vp = &is->pictq[is->pictq_rindex];
       /* Now, normally here goes a ton of code
-	 about timing, etc. we're just going to
-	 guess at a delay for now. You can
-	 increase and decrease this value and hard code
-	 the timing - but I don't suggest that ;)
-	 We'll learn how to do it for real later.
+      about timing, etc. we're just going to
+      guess at a delay for now. You can
+      increase and decrease this value and hard code
+      the timing - but I don't suggest that ;)
+      We'll learn how to do it for real later.
       */
       schedule_refresh(is, 80);
       
@@ -318,7 +323,7 @@ void video_refresh_timer(void *userdata) {
       
       /* update queue for next picture! */
       if(++is->pictq_rindex == VIDEO_PICTURE_QUEUE_SIZE) {
-	is->pictq_rindex = 0;
+        is->pictq_rindex = 0;
       }
       SDL_LockMutex(is->pictq_mutex);
       is->pictq_size--;
@@ -362,8 +367,7 @@ int queue_picture(VideoState *is, AVFrame *pFrame) {
 
   /* wait until we have space for a new pic */
   SDL_LockMutex(is->pictq_mutex);
-  while(is->pictq_size >= VIDEO_PICTURE_QUEUE_SIZE &&
-	!is->quit) {
+  while(is->pictq_size >= VIDEO_PICTURE_QUEUE_SIZE && !is->quit) {
     SDL_CondWait(is->pictq_cond, is->pictq_mutex);
   }
   SDL_UnlockMutex(is->pictq_mutex);
@@ -450,14 +454,12 @@ int video_thread(void *arg) {
       break;
     }
     // Decode video frame
-    avcodec_decode_video2(is->video_st->codec, pFrame, &frameFinished, 
-				packet);
+    avcodec_decode_video2(is->video_st->codec, pFrame, &frameFinished, packet);
 
     // Did we get a video frame?
     if(frameFinished) {
-      if(queue_picture(is, pFrame) < 0) {
-	break;
-      }
+      if(queue_picture(is, pFrame) < 0) 
+        break;
     }
     av_free_packet(packet);
   }
@@ -619,10 +621,10 @@ int decode_thread(void *arg) {
     }
     if(av_read_frame(is->pFormatCtx, packet) < 0) {
       if(is->pFormatCtx->pb->error == 0) {
-	SDL_Delay(100); /* no error; wait for user input */
-	continue;
+	      SDL_Delay(100); /* no error; wait for user input */
+	      continue;
       } else {
-	break;
+      	break;
       }
     }
     // Is this a packet from the video stream?

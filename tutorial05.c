@@ -155,7 +155,7 @@ static int packet_queue_get(PacketQueue *q, AVPacket *pkt, int block)
     if (pkt1) {
       q->first_pkt = pkt1->next;
       if (!q->first_pkt)
-	q->last_pkt = NULL;
+        q->last_pkt = NULL;
       q->nb_packets--;
       q->size -= pkt1->pkt.size;
       *pkt = pkt1->pkt;
@@ -199,9 +199,9 @@ int audio_decode_frame(VideoState *is, double *pts_ptr) {
       int got_frame;
       len1 = avcodec_decode_audio4(is->audio_st->codec, &is->audio_frame, &got_frame, pkt);
       if(len1 < 0) {
-	/* if error, skip frame */
-	is->audio_pkt_size = 0;
-	break;
+        /* if error, skip frame */
+        is->audio_pkt_size = 0;
+        break;
       }
       if (got_frame)
       {
@@ -219,8 +219,8 @@ int audio_decode_frame(VideoState *is, double *pts_ptr) {
       is->audio_pkt_data += len1;
       is->audio_pkt_size -= len1;
       if(data_size <= 0) {
-	/* No data yet, get more frames */
-	continue;
+        /* No data yet, get more frames */
+        continue;
       }
       pts = is->audio_clock;
       *pts_ptr = pts;
